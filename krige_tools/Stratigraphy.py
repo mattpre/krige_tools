@@ -51,17 +51,17 @@ class Stratigraphy():
 
     def read_boreholes_from_file(self,filename,pathname='.'):
         f = open(pathname+'/'+filename)
-        nBH = int(f.next())
-        nL = int(f.next().split()[1])
+        nBH = int(next(f))
+        nL = int(next(f).split()[1])
         for kl in range(nL):
-            v = f.next().split()
+            v = next(f).split()
             self.minimum_height.append(float(v[0]))
             self.range.append(float(v[3]))
-        nL = int(f.next().split()[1])
+        nL = int(next(f).split()[1])
         # order of sedimentation of layers:
         order = []
         for kl in range(nL):
-            v = f.next().split()
+            v = next(f).split()
             order.append([int(v[0]),int(v[1])])
             self.layer_numbers.append(int(v[0]))
         order.sort(key=lambda v:v[1])
@@ -70,15 +70,15 @@ class Stratigraphy():
 
         for kbh in range(nBH):
             bh = Borehole()
-            bh.name = f.next()[:-1]
-            v = f.next().split()
+            bh.name = next(f)[:-1]
+            v = next(f).split()
             bh.xy = [float(v[1]),-float(v[3])]
             top = float(v[2])
             nlines = int(v[4])
             klayer = order[-1]
             bh.altitudes.append(top)
             for kline in range(nlines):
-                v = f.next().split()
+                v = next(f).split()
                 alt = [float(v[0])+top,float(v[1])+top]
                 kl = int(v[2])
                 if not kl==klayer:
@@ -271,6 +271,7 @@ class Stratigraphy():
                 tf.SetTransform(transL1)
                 writer.SetInputConnection(tf.GetOutputPort())
                 writer.Write()
+##                print(layers[kl])
         else:
             model = vtk.vtkAppendFilter()
             layer_no = vtk.vtkIntArray()
@@ -356,33 +357,34 @@ class Stratigraphy():
         writer.SetInputData(aplab.GetOutput())
         writer.Write()
 
-        ap2 = vtk.vtkAppendPolyData()
-        pts = vtk.vtkPoints()
-        layer_no = vtk.vtkIntArray()
-        for kpt,pt in enumerate(self.additional_points):
-            pts.InsertNextPoint(pt[1][0],pt[1][1],pt[2])
-##            apt = vtk.vtkPointSource()
-##            apt.SetNumberOfPoints(1)
-##            apt.SetCenter(pt[1][0],pt[1][1],pt[2])
-##            apt.SetRadius(0)
-##            apt.Update()
-            apt = vtk.vtkSphereSource()
-            apt.SetRadius(2)
-            apt.SetCenter(pt[1][0],pt[1][1],pt[2])
-            apt.Update()
-            for kk in range(apt.GetOutput().GetNumberOfCells()):
-                layer_no.InsertNextTuple1(pt[0])
-            
-            ap2.AddInputConnection(apt.GetOutputPort())
+        if len(self.additional_points):
+            ap2 = vtk.vtkAppendPolyData()
+            pts = vtk.vtkPoints()
+            layer_no = vtk.vtkIntArray()
+            for kpt,pt in enumerate(self.additional_points):
+                pts.InsertNextPoint(pt[1][0],pt[1][1],pt[2])
+    ##            apt = vtk.vtkPointSource()
+    ##            apt.SetNumberOfPoints(1)
+    ##            apt.SetCenter(pt[1][0],pt[1][1],pt[2])
+    ##            apt.SetRadius(0)
+    ##            apt.Update()
+                apt = vtk.vtkSphereSource()
+                apt.SetRadius(2)
+                apt.SetCenter(pt[1][0],pt[1][1],pt[2])
+                apt.Update()
+                for kk in range(apt.GetOutput().GetNumberOfCells()):
+                    layer_no.InsertNextTuple1(pt[0])
 
-        ap2.Update()
-        ap2.GetOutput().GetCellData().AddArray(layer_no)
-        
-        writer = vtk.vtkXMLPolyDataWriter()
-        writer.SetDataModeToAscii()
-        writer.SetFileName(pathname+'/'+prob+'_add_points.vtp')
-        writer.SetInputData(ap2.GetOutput())
-        writer.Write()
+                ap2.AddInputConnection(apt.GetOutputPort())
+
+            ap2.Update()
+            ap2.GetOutput().GetCellData().AddArray(layer_no)
+            
+            writer = vtk.vtkXMLPolyDataWriter()
+            writer.SetDataModeToAscii()
+            writer.SetFileName(pathname+'/'+prob+'_add_points.vtp')
+            writer.SetInputData(ap2.GetOutput())
+            writer.Write()
             
 
     def check_stratigraphy(self):
@@ -412,12 +414,12 @@ class Stratigraphy():
                     self.precision[1] += 1
                 else:
                     res.append('n %1.2f'%(bh.altitudes[kv]-intersections[kv]))
-        print 'average prec: %1.2f'%(self.precision[0]/self.precision[1])
+        print('average prec: %1.2f'%(self.precision[0]/self.precision[1]))
         for kl,bhs in enumerate(correct_layers_at_bh):
             if len(bhs):
-                print '%s: Sequence of layers is wrong at the following boreholes:'%(self.layer_names[kl])
+                print('%s: Sequence of layers is wrong at the following boreholes:'%(self.layer_names[kl]))
                 for bh in bhs:
-                    print self.boreholes[bh].name
+                    print(self.boreholes[bh].name)
 
     def add_points(self,filename,pathname='.'):
         f = open(pathname+'/'+filename)
@@ -470,7 +472,7 @@ class Stratigraphy():
                 d1 = ((pt1[0]-pt[0])**2+(pt1[1]-pt[1])**2)**0.5
                 if d0<dl and d1<dl:
                     if abs((d0+d1-dl)/dl)>1e-2:
-                        print 'check slice_layer_polyplane'
+                        print('check slice_layer_polyplane')
                     label_abscissae[kppt] = x0+d0
             x0 += dl
 
@@ -536,4 +538,49 @@ class Stratigraphy():
                 prof.labels.append([float(v[0]),float(v[1]),v[2][:-1]])
             self.profiles.append(prof)
         f.close()
+
+    def create_inclusions(self,layer=0,boreholes=[],data=[],pathname='.'):
+        model = vtk.vtkAppendFilter()
+        dx = 1
+
+        for kb in range(len(boreholes)):
+            for bh in self.boreholes:
+                if boreholes[kb]==bh.name:
+                    break
+            ellipsoid = vtk.vtkParametricEllipsoid()
+            ellipsoid.SetXRadius(data[kb][2])
+            ellipsoid.SetYRadius(data[kb][2])
+            ellipsoid.SetZRadius(0.5*(data[kb][0]-data[kb][1]))
+            poly = vtk.vtkParametricFunctionSource()
+            poly.SetParametricFunction(ellipsoid)
+            poly.SetUResolution(int(data[kb][2]/dx))
+            poly.SetVResolution(int(data[kb][2]/dx))
+            poly.SetWResolution(int(0.5*(data[kb][0]-data[kb][1])/dx))
+            poly.Update()
+            result = vtk.vtkPolyData()
+            result.ShallowCopy(poly.GetOutput())
+            trans = vtk.vtkTransform()
+            trans.Translate(bh.xy[0],bh.xy[1],bh.altitudes[0]-0.5*(data[kb][0]+data[kb][1]))
+            tpd = vtk.vtkTransformPolyDataFilter()
+            tpd.SetTransform(trans)
+            tpd.SetInputData(result)
+            tpd.Update()
+            model.AddInputConnection(tpd.GetOutputPort())
+
+        model.Update()
+        gf = vtk.vtkGeometryFilter()
+        gf.SetInputConnection(model.GetOutputPort())
+        gf.Update()
+            
+        writer = vtk.vtkXMLPolyDataWriter()
+        writer.SetFileName(pathname+'/inclusions.vtp')
+        writer.SetInputData(gf.GetOutput())
+        writer.Write()
+            
+        writer = vtk.vtkSTLWriter()
+        writer.SetFileName(pathname+'/inclusions.stl')
+        writer.SetInputData(gf.GetOutput())
+        writer.Write()
+
+    
         

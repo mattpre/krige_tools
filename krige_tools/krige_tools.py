@@ -15,7 +15,7 @@ def regularize_layers(l0):
             pt1 = Points[kl+1].GetPoint(kp)
             if ((pt[0]-pt1[0])**2+\
                 (pt[1]-pt1[1])**2)**0.5>1e-6:
-                print 'Error in krige_tools.regularize_layers: Layers don\'t have identical grids.'
+                print('Error in krige_tools.regularize_layers: Layers don\'t have identical grids.')
 
     # get altitudes at grid points:
     for kp in range(Points[0].GetNumberOfPoints()):
