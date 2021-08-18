@@ -26,8 +26,7 @@ class Stratigraphy():
         # additional points defining a layer can be given. format:
         # [layer_index,xy,altitude]
         self.additional_points = []
-        self.orig_layers = []
-        self.reg_layers = []
+        self.layers = []
         self.bounds = [[1e10,-1e10],[1e10,-1e10]]
         self.gridx = np.array([])
         self.gridy = np.array([])
@@ -38,6 +37,7 @@ class Stratigraphy():
         self.kdTrees = []
         self.planekdTree = 0
         self.precision = [0,0]
+        self.materials = []
         # for vtk output only:
         self.updir = 'z'
         # minimum element height for each layer:
@@ -50,6 +50,26 @@ class Stratigraphy():
         self.boreholes.append([xy,altitudes])
 
     def read_boreholes_from_file(self,filename,pathname='.'):
+        # first, get list of all materials included in boreholes:
+        f = open(pathname+'/'+filename)
+        nBH = int(next(f))
+        nL = int(next(f).split()[1])
+        for kl in range(nL):
+            next(f)
+        nL = int(next(f).split()[1])
+        for kl in range(nL):
+            next(f)
+        materials = set()
+        for kbh in range(nBH):
+            next(f)
+            v = next(f).split()
+            nlines = int(v[4])
+            for kline in range(nlines):
+                v = next(f).split()
+                materials.add(int(v[2]))
+        self.materials = sorted(list(materials))
+        f.close()
+        
         f = open(pathname+'/'+filename)
         nBH = int(next(f))
         nL = int(next(f).split()[1])
@@ -75,32 +95,29 @@ class Stratigraphy():
             bh.xy = [float(v[1]),-float(v[3])]
             top = float(v[2])
             nlines = int(v[4])
-            klayer = order[-1]
+            klayer = 0#order[-1]
             bh.altitudes.append(top)
             for kline in range(nlines):
+                material = self.materials[klayer]
                 v = next(f).split()
                 alt = [float(v[0])+top,float(v[1])+top]
-                kl = int(v[2])
-                if not kl==klayer:
-                    for kkk in range(klayer,kl):
+                mat = int(v[2])
+                if not mat==material:
+                    for kkk in range(len(self.materials),klayer):
                         bh.altitudes.append(bh.altitudes[-1])
                 bh.altitudes.append(alt[1])
-                bh.layer_ind.append(rorder.index(kl))
-                bh.layers.append(kl)
-                klayer = kl+1
+                bh.layer_ind.append(self.materials.index(mat))
+                bh.layers.append(mat)
+                klayer += 1
             self.boreholes.append(bh)
         f.close()
 
-    def probe(self,xy,probe_layers='all',dataset='original'):
-        if dataset=='original':
-            layers = self.orig_layers
-        else:
-            layers = self.reg_layers
+    def probe(self,xy,probe_layers='all'):
 
         if len(self.bspTrees)==0:
             for kl in range(len(self.layer_names)):
                 bspTree = vtk.vtkModifiedBSPTree()
-                bspTree.SetDataSet(layers[kl])
+                bspTree.SetDataSet(self.layers[kl])
                 bspTree.BuildLocator()
                 self.bspTrees.append(bspTree)
 
@@ -109,7 +126,7 @@ class Stratigraphy():
 ##                kdTree.BuildLocator()
 ##                self.kdTrees.append(kdTree)
 
-                points = layers[0].GetPoints()
+                points = self.layers[0].GetPoints()
                 plane_pts = vtk.vtkPoints()
                 for kp in range(points.GetNumberOfPoints()):
                     pt = points.GetPoint(kp)
@@ -145,13 +162,13 @@ class Stratigraphy():
 ##                cellId = vtk.mutable(0)
 ##                ptId = self.bspTrees[kl].FindClosestPoint((xy[0],xy[1],0),
 ##                                                          pos,cellId,subId,t)
-                pt = layers[kl].GetPoint(ptId)
+                pt = self.layers[kl].GetPoint(ptId)
                 result.append(pt[2])
 ##                print 'Error in Stratigraphy.probe'
                 
         return result
 
-    def create_original_layers(self):
+    def create_layers(self):
         if self.bounds[0][0]==1e10 and self.bounds[1][1]==-1e10:
             for bh in self.boreholes:
                 self.bounds[0][0] = min(self.bounds[0][0],bh.xy[0])
@@ -178,8 +195,8 @@ class Stratigraphy():
                 self.gridx = np.linspace(self.bounds[0][0],self.bounds[0][1],num=20)
                 self.gridy = np.linspace(self.bounds[1][0],self.bounds[1][1],num=20)
 
-        for kl in range(len(self.layer_names)):
-            additional_points = [[pt[1],pt[2]] for pt in self.additional_points if pt[0]==self.layer_numbers[kl]]
+        for kl in range(len(self.materials)):
+            additional_points = [[pt[1],pt[2]] for pt in self.additional_points if pt[0]==self.materials[kl]]
             
             XYZ = [[],[],[]]
             for bh in self.boreholes:
@@ -189,8 +206,12 @@ class Stratigraphy():
                     XYZ[2].append(bh.altitudes[kl])
             for pt in additional_points:
                 XYZ[0].append(pt[0][0])
-                XYZ[1].append(pt[0][1])
+                XYZ[1].append(-pt[0][1])
                 XYZ[2].append(pt[1])
+            if len(XYZ[0])==1:
+                XYZ[0].append(XYZ[0][0]+10)
+                XYZ[1].append(XYZ[1][0])
+                XYZ[2].append(XYZ[2][0])
 
             OK = OrdinaryKriging(XYZ[0],XYZ[1],XYZ[2],
                                  variogram_model='spherical',
@@ -227,25 +248,9 @@ class Stratigraphy():
             surf.SetPolys(cells)
             surf.SetPoints(points)
 
-            self.orig_layers.append(surf)
+            self.layers.append(surf)
 
-    def regularize_layers(self,copy=True):
-        if copy:
-            for kl in range(len(self.layer_names)):
-                poly = vtk.vtkPolyData()
-                poly.DeepCopy(self.orig_layers[kl])
-                self.reg_layers.append(poly)
-        else:
-            for kl in range(len(self.layer_names)):
-                self.reg_layers.append(self.orig_layers[kl])
-
-        krige_tools.regularize_layers(self.reg_layers)
-
-    def write_layers(self,original=False,output='individual',prob='',pathname='.'):
-        if original:
-            layers = self.orig_layers
-        else:
-            layers = self.reg_layers
+    def write_layers(self,output='individual',prob='',pathname='.'):
 
         transL1 = vtk.vtkTransform()
         if self.updir=='y':
@@ -260,14 +265,10 @@ class Stratigraphy():
             for kl in range(len(self.layer_names)):
                 writer = vtk.vtkXMLPolyDataWriter()
                 writer.SetDataModeToAscii()
-                if original:
-                    writer.SetFileName(pathname+'/%s%s.vtp'%\
-                                       (prob1,self.layer_names[kl].encode('utf-8','ignore')))
-                else:
-                    writer.SetFileName(pathname+'/%sregularized_%s.vtp'%\
-                                       (prob1,self.layer_names[kl].encode('utf-8','ignore')))
+                writer.SetFileName(pathname+'/%s%s.vtp'%\
+                                   (prob1,self.layer_names[kl].encode('utf-8','ignore')))
                 tf = vtk.vtkTransformPolyDataFilter()
-                tf.SetInputData(layers[kl])
+                tf.SetInputData(self.layers[kl])
                 tf.SetTransform(transL1)
                 writer.SetInputConnection(tf.GetOutputPort())
                 writer.Write()
@@ -278,22 +279,18 @@ class Stratigraphy():
             layer_no.SetName('OK Layer')
             for kl in range(len(self.layer_names)):
                 tf = vtk.vtkTransformPolyDataFilter()
-                tf.SetInputData(layers[kl])
+                tf.SetInputData(self.layers[kl])
                 tf.SetTransform(transL1)
                 model.AddInputConnection(tf.GetOutputPort())
-                for ke in range(layers[kl].GetNumberOfCells()):
+                for ke in range(self.layers[kl].GetNumberOfCells()):
                     layer_no.InsertNextTuple1(kl+1)
             model.Update()
             poly = model.GetOutput()
             poly.GetCellData().AddArray(layer_no)
             writer = vtk.vtkXMLUnstructuredGridWriter()
             writer.SetDataModeToAscii()
-            if original:
-                writer.SetFileName(pathname+'/%sstratigraphy.vtu'%\
-                                   (prob1))
-            else:
-                writer.SetFileName(pathname+'/%sregularized_stratigraphy.vtu'%\
-                                   (prob1))
+            writer.SetFileName(pathname+'/%sstratigraphy.vtu'%\
+                               (prob1))
             writer.SetInputConnection(model.GetOutputPort())
             writer.Write()
 
@@ -340,6 +337,7 @@ class Stratigraphy():
                     ap.AddInputConnection(tube.GetOutputPort())
                     for kk in range(tube.GetOutput().GetNumberOfCells()):
                         layer_no.InsertNextTuple1(ka+1)
+                        
         ap.Update()
         aplab.Update()
         poly = ap.GetOutput()
@@ -402,18 +400,22 @@ class Stratigraphy():
             intersections = self.probe(bh.xy,probe_layers='all')
             res = []
             for kv in range(len(intersections)):
+                # if borehole is not supposed to intersect given layer:
                 if kv>max(bh.layer_ind):
                     if intersections[kv]>bh.altitudes[-1]:
                         res.append('!!')
                         correct_layers_at_bh[kv].append(kb)
                     else:
                         res.append('ok')
+                # borehole intersects given layer:
                 elif kv in bh.layer_ind:
-                    res.append('i %1.2f'%(bh.altitudes[kv]-intersections[kv]))
-                    self.precision[0] += abs(bh.altitudes[kv]-intersections[kv])
+                    ind = bh.layer_ind.index(kv)
+                    res.append('i %1.2f'%(bh.altitudes[ind]-intersections[kv]))
+                    self.precision[0] += abs(bh.altitudes[ind]-intersections[kv])
                     self.precision[1] += 1
                 else:
-                    res.append('n %1.2f'%(bh.altitudes[kv]-intersections[kv]))
+                    res.append('n %1.2f'%(bh.altitudes[-1]-intersections[kv]))
+            print(res)
         print('average prec: %1.2f'%(self.precision[0]/self.precision[1]))
         for kl,bhs in enumerate(correct_layers_at_bh):
             if len(bhs):
@@ -539,7 +541,7 @@ class Stratigraphy():
             self.profiles.append(prof)
         f.close()
 
-    def create_inclusions(self,layer=0,boreholes=[],data=[],pathname='.'):
+    def create_inclusions(self,boreholes=[],data=[],name='',pathname='.'):
         model = vtk.vtkAppendFilter()
         dx = 1
 
@@ -573,12 +575,12 @@ class Stratigraphy():
         gf.Update()
             
         writer = vtk.vtkXMLPolyDataWriter()
-        writer.SetFileName(pathname+'/inclusions.vtp')
+        writer.SetFileName(pathname+'/%s_inclusions.vtp'%(name))
         writer.SetInputData(gf.GetOutput())
         writer.Write()
             
         writer = vtk.vtkSTLWriter()
-        writer.SetFileName(pathname+'/inclusions.stl')
+        writer.SetFileName(pathname+'/%s_inclusions.stl'%(name))
         writer.SetInputData(gf.GetOutput())
         writer.Write()
 
