@@ -168,6 +168,35 @@ class Stratigraphy():
                 
         return result
 
+    def inside_volume(self,xyz,filename,bspTree=0):
+        if bspTree==0:
+            reader = vtk.vtkXMLPolyDataReader()
+            reader.SetFileName(filename)
+            reader.Update()
+            bspTree = vtk.vtkModifiedBSPTree()
+            bspTree.SetDataSet(reader.GetOutput())
+            bspTree.BuildLocator()
+
+        result = []
+        pts = vtk.vtkPoints()
+        cellIds = vtk.vtkIdList()
+        iD0 = bspTree\
+              .IntersectWithLine((xyz[0],xyz[1],xyz[2]),
+                                 (xyz[0],xyz[1],1000),0.0001,pts,cellIds)
+        
+        if cellIds.GetNumberOfIds()%2==1:
+##            for kc in range(cellIds.GetNumberOfIds()):
+##                cell = bspTree.GetDataSet().GetCell(cellIds.GetId(kc))
+##                n = [0,0,0]
+##                cell.ComputeNormal(cell.GetPoints().GetPoint(0),
+##                                   cell.GetPoints().GetPoint(1),
+##                                   cell.GetPoints().GetPoint(2),n)
+##                if abs(n[2])<1e-2:
+##                    print(n)
+            return (True,bspTree)
+        else:
+            return (False,bspTree)
+
     def create_layers(self):
         if self.bounds[0][0]==1e10 and self.bounds[1][1]==-1e10:
             for bh in self.boreholes:
@@ -415,7 +444,7 @@ class Stratigraphy():
                     self.precision[1] += 1
                 else:
                     res.append('n %1.2f'%(bh.altitudes[-1]-intersections[kv]))
-            print(res)
+##            print(res)
         print('average prec: %1.2f'%(self.precision[0]/self.precision[1]))
         for kl,bhs in enumerate(correct_layers_at_bh):
             if len(bhs):
