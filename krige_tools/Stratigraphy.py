@@ -295,7 +295,7 @@ class Stratigraphy():
                 writer = vtk.vtkXMLPolyDataWriter()
                 writer.SetDataModeToAscii()
                 writer.SetFileName(pathname+'/%s%s.vtp'%\
-                                   (prob1,self.layer_names[kl].encode('utf-8','ignore')))
+                                   (prob1,self.layer_names[kl]))#.encode('utf-8','ignore')))
                 tf = vtk.vtkTransformPolyDataFilter()
                 tf.SetInputData(self.layers[kl])
                 tf.SetTransform(transL1)
@@ -496,25 +496,29 @@ class Stratigraphy():
         for kpt in range(len(profile.points)-1):
             pt0 = profile.points[kpt]
             pt1 = profile.points[kpt+1]
-            dl = ((pt0[0]-pt1[0])**2+(pt0[1]-pt1[1])**2)**0.5
+            dL = ((pt0[0]-pt1[0])**2+(pt0[1]-pt1[1])**2)**0.5
             for kppt in range(len(profile.labels)):
                 pt = profile.labels[kppt][:2]
                 d0 = ((pt0[0]-pt[0])**2+(pt0[1]-pt[1])**2)**0.5
                 d1 = ((pt1[0]-pt[0])**2+(pt1[1]-pt[1])**2)**0.5
-                if d0<dl and d1<dl:
-                    if abs((d0+d1-dl)/dl)>1e-2:
+                if d0<dL and d1<=dL:
+                    if abs((d0+d1-dL)/dL)>1e-2:
                         print('check slice_layer_polyplane')
                     label_abscissae[kppt] = x0+d0
-            x0 += dl
+            x0 += dL
 
         pd = vtk.vtkPolyData()
         pd.SetPoints(pts)
-        pd.SetLines(lines)
+##        pd.SetLines(lines)
         
         pl = vtk.vtkPolyLine()
         pl.GetPointIds().SetNumberOfIds(len(profile.points))
         for kpt in range(len(profile.points)):
             pl.GetPointIds().SetId(kpt,kpt)
+
+        ca = vtk.vtkCellArray()
+        ca.InsertNextCell(pl)
+        pd.SetLines(ca)
 
         pd.Allocate(1,1)
         pd.InsertNextCell(pl.GetCellType(),pl.GetPointIds())
@@ -523,6 +527,8 @@ class Stratigraphy():
 
         pplane = vtk.vtkPolyPlane()
         pplane.SetPolyLine(pl)
+##        pplane.Update()
+##        print(pplane)
 
         lines = []
         for layer in layers:
@@ -530,6 +536,7 @@ class Stratigraphy():
             cut.SetInputData(layer)
             cut.SetCutFunction(pplane)
             cut.Update()
+            print('here')
 ##            lines.append(cut.GetOutput())
             line = cut.GetOutput()
             prof_line = []
@@ -539,16 +546,17 @@ class Stratigraphy():
                 for kpt in range(len(profile.points)-1):
                     pt0 = profile.points[kpt]
                     pt1 = profile.points[kpt+1]
-                    dl = ((pt0[0]-pt1[0])**2+(pt0[1]-pt1[1])**2)**0.5
+                    dL = ((pt0[0]-pt1[0])**2+(pt0[1]-pt1[1])**2)**0.5
                     d0 = ((pt0[0]-pt[0])**2+(pt0[1]-pt[1])**2)**0.5
                     d1 = ((pt1[0]-pt[0])**2+(pt1[1]-pt[1])**2)**0.5
-                    if d0<dl and d1<dl:
+                    if d0<dL and d1<=dL:
                         prof_line.append((x0+d0,pt[2]))
 ##                        print dl,d0,d1,x0
 ##                        print pt,pt0,pt1
                         break
-                    x0 += dl
+                    x0 += dL
             prof_line.sort(key=lambda v:v[0])
+            print(line.GetNumberOfPoints())
             lines.append([[v[0] for v in prof_line],
                           [v[1] for v in prof_line]])        
 
@@ -558,14 +566,14 @@ class Stratigraphy():
         f = open(pathname+'/'+filename)
         for line in f:
             prof = Profile()
-            prof.name = line[:-1].decode('iso-8859-1')
-            nPt = int(f.next())
+            prof.name = line[:-1]#.decode('iso-8859-1')
+            nPt = int(next(f))
             for kpt in range(nPt):
-                v = f.next().split()
+                v = next(f).split()
                 prof.points.append([float(v[0]),float(v[1])])
-            nLab = int(f.next().split()[0])
+            nLab = int(next(f).split()[0])
             for kl in range(nLab):
-                v = f.next().split(' ',2)
+                v = next(f).split(' ',2)
                 prof.labels.append([float(v[0]),float(v[1]),v[2][:-1]])
             self.profiles.append(prof)
         f.close()
